@@ -1141,8 +1141,10 @@ Token* Token::insertToken(const std::string& tokenStr, const std::string& origin
                     newToken->mImpl->mScopeInfo = mImpl->mScopeInfo;
                 }
                 if (newToken->str() == ";") {
-                    const Token* statementStart;
-                    for (statementStart = newToken; statementStart->previous() && !Token::Match(statementStart->previous(), ";|{"); statementStart = statementStart->previous()) {}
+                    const Token* statementStart = newToken;
+                    while (statementStart->previous() && !Token::Match(statementStart->previous(), ";|{")) {
+                        statementStart = statementStart->previous();
+                    }
                     if (Token::Match(statementStart, "using namespace %name% ::|;")) {
                         const Token * tok1 = statementStart->tokAt(2);
                         std::string nameSpace;
@@ -1890,6 +1892,16 @@ const ValueFlow::Value * Token::getValueGE(const MathLib::bigint val, const Sett
     return ValueFlow::findValue(*mImpl->mValues, settings, [&](const ValueFlow::Value& v) {
         return !v.isImpossible() && v.isIntValue() && v.intvalue >= val;
     });
+}
+
+const ValueFlow::Value * Token::getValueNE(MathLib::bigint val) const
+{
+    if (!mImpl->mValues)
+        return nullptr;
+    const auto it = std::find_if(mImpl->mValues->cbegin(), mImpl->mValues->cend(), [=](const ValueFlow::Value& value) {
+        return value.isIntValue() && !value.isImpossible() && value.intvalue != val;
+    });
+    return it == mImpl->mValues->end() ? nullptr : &*it;
 }
 
 const ValueFlow::Value * Token::getInvalidValue(const Token *ftok, nonneg int argnr, const Settings &settings) const

@@ -44,6 +44,7 @@ private:
         TEST_CASE(longCastReturn);
         TEST_CASE(checkFloatToIntegerOverflow);
         TEST_CASE(integerOverflow); // #11794
+        TEST_CASE(shiftTooManyBits); // #11496
     }
 
 #define check(...) check_(__FILE__, __LINE__, __VA_ARGS__)
@@ -291,7 +292,7 @@ private:
               "   if (x==123456) {}\n"
               "   return -123456 * x;\n"
               "}",settings);
-        ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:3]: (warning) Either the condition 'x==123456' is redundant or there is signed integer overflow for expression '-123456*x'.\n", errout_str());
+        ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:3]: (warning) Either the condition 'x==123456' is redundant or there is signed integer underflow for expression '-123456*x'.\n", errout_str());
 
         check("int foo(signed int x) {\n"
               "   if (x==123456) {}\n"
@@ -303,6 +304,16 @@ private:
               "    return (i == 31) ? 1 << i : 0;\n"
               "}", settings);
         ASSERT_EQUALS("[test.cpp:2] -> [test.cpp:2]: (warning) Shifting signed 32-bit value by 31 bits is undefined behaviour. See condition at line 2.\n", errout_str());
+
+        check("void f() {\n" // #13092
+              "    int n = 0;\n"
+              "    for (int i = 0; i < 10; i++) {\n"
+              "        n = n * 47163 - 57412;\n"
+              "    }\n"
+              "}", settings);
+        ASSERT_EQUALS("[test.cpp:4]: (error) Signed integer underflow for expression 'n*47163'.\n"
+                      "[test.cpp:4]: (error) Signed integer underflow for expression 'n*47163-57412'.\n",
+                      errout_str());
     }
 
     void signConversion() {
@@ -352,6 +363,11 @@ private:
               " return -2 * x;\n"
               "}", settingsDefault);
         ASSERT_EQUALS("[test.cpp:2]: (warning) Expression '-2' has a negative value. That is converted to an unsigned value and used in an unsigned calculation.\n", errout_str());
+
+        checkP("void f() {\n" // #12110 FP signConversion with integer overflow
+               "    if (LLONG_MIN / (-1)) {}\n"
+               "}\n", settingsDefault);
+        ASSERT_EQUALS("", errout_str());
     }
 
     void longCastAssign() {
@@ -572,6 +588,18 @@ private:
                "    i << 2;\n"
                "}", s, "test.cpp");
         ASSERT_EQUALS("[test.cpp:4]: (error) Signed integer overflow for expression 'i<<2'.\n", errout_str());
+    }
+
+    void shiftTooManyBits() { // #11496
+        check("template<unsigned int width> struct B {\n"
+              "    unsigned long long f(unsigned int n) const {\n"
+              "        if (width == 1)\n"
+              "            return 1ULL << width;\n"
+              "        return 0;\n"
+              "    }\n"
+              "};\n"
+              "static B<64> b;\n", settingsDefault);
+        ASSERT_EQUALS("", errout_str());
     }
 };
 

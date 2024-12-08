@@ -55,6 +55,7 @@ public:
     }
 
     enum class CheckLevel : std::uint8_t {
+        reduced,
         normal,
         exhaustive
     };
@@ -224,6 +225,7 @@ public:
     QStringList getAddonsAndTools() const;
 
     bool getClangAnalyzer() const {
+        // TODO
         return false; //mClangAnalyzer;
     }
 
@@ -351,7 +353,9 @@ public:
 
     /** CheckLevel: normal/exhaustive */
     void setCheckLevel(CheckLevel checkLevel);
-    bool isCheckLevelExhaustive() const;
+    CheckLevel getCheckLevel() const {
+        return mCheckLevel;
+    }
 
     /**
      * @brief Set tags.

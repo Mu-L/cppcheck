@@ -284,6 +284,14 @@ namespace ValueFlow
         /** For calculated values - varId that calculated value depends on */
         nonneg int varId{};
 
+        enum class UnknownFunctionReturn : uint8_t {
+            no,             // not unknown function return
+            outOfMemory,    // out of memory
+            outOfResources, // out of resource
+            other           // other
+        };
+        UnknownFunctionReturn unknownFunctionReturn{UnknownFunctionReturn::no};
+
         /** value relies on safe checking */
         bool safe{};
 
@@ -296,7 +304,7 @@ namespace ValueFlow
         /** Is this value passed as default parameter to the function? */
         bool defaultArg{};
 
-        int indirect{};
+        int8_t indirect{};
 
         /** kind of moved  */
         enum class MoveKind : std::uint8_t { NonMovedVariable, MovedVariable, ForwardedVariable } moveKind = MoveKind::NonMovedVariable;
@@ -327,10 +335,10 @@ namespace ValueFlow
 
         enum class LifetimeScope : std::uint8_t { Local, Argument, SubFunction, ThisPointer, ThisValue } lifetimeScope = LifetimeScope::Local;
 
-        static const char* toString(MoveKind moveKind);
-        static const char* toString(LifetimeKind lifetimeKind);
-        static const char* toString(LifetimeScope lifetimeScope);
-        static const char* toString(Bound bound);
+        RET_NONNULL static const char* toString(MoveKind moveKind);
+        RET_NONNULL static const char* toString(LifetimeKind lifetimeKind);
+        RET_NONNULL static const char* toString(LifetimeScope lifetimeScope);
+        RET_NONNULL static const char* toString(Bound bound);
 
         /** How known is this value */
         enum class ValueKind : std::uint8_t {
