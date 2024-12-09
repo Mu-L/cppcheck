@@ -42,10 +42,6 @@
 
 #include "xml.h"
 
-namespace CTU {
-    class FileInfo;
-}
-
 //---------------------------------------------------------------------------
 
 // Register CheckClass..
@@ -2119,6 +2115,8 @@ void CheckClass::checkConst()
                 continue;
             if (func.functionPointerUsage)
                 continue;
+            if (func.hasRvalRefQualifier())
+                continue;
 
             // don't suggest const when returning non-const pointer/reference, but still suggest static
             auto isPointerOrReference = [this](const Token* start, const Token* end) -> bool {
@@ -2174,7 +2172,8 @@ void CheckClass::checkConst()
             }
 
             // check if base class function is virtual
-            if (!scope->definedType->derivedFrom.empty() && func.isImplicitlyVirtual(true))
+            bool foundAllBaseClasses = true;
+            if (!scope->definedType->derivedFrom.empty() && func.isImplicitlyVirtual(true, &foundAllBaseClasses) && foundAllBaseClasses)
                 continue;
 
             MemberAccess memberAccessed = MemberAccess::NONE;
@@ -2202,9 +2201,9 @@ void CheckClass::checkConst()
                 functionName += "]";
 
             if (func.isInline())
-                checkConstError(func.token, classname, functionName, suggestStatic);
+                checkConstError(func.token, classname, functionName, suggestStatic, foundAllBaseClasses);
             else // not inline
-                checkConstError2(func.token, func.tokenDef, classname, functionName, suggestStatic);
+                checkConstError2(func.token, func.tokenDef, classname, functionName, suggestStatic, foundAllBaseClasses);
         }
     }
 }
@@ -2279,9 +2278,12 @@ bool CheckClass::isMemberVar(const Scope *scope, const Token *tok) const
     // not found in this class
     if (!scope->definedType->derivedFrom.empty()) {
         // check each base class
+        bool foundAllBaseClasses = true;
         for (const Type::BaseInfo & i : scope->definedType->derivedFrom) {
             // find the base class
             const Type *derivedFrom = i.type;
+            if (!derivedFrom || !derivedFrom->classScope)
+                foundAllBaseClasses = false;
 
             // find the function in the base class
             if (derivedFrom && derivedFrom->classScope && derivedFrom->classScope != scope) {
@@ -2289,6 +2291,8 @@ bool CheckClass::isMemberVar(const Scope *scope, const Token *tok) const
                     return true;
             }
         }
+        if (!foundAllBaseClasses)
+            return true;
     }
 
     return false;
@@ -2533,18 +2537,35 @@ bool CheckClass::checkConstFunc(const Scope *scope, const Function *func, Member
                 return func && func->isConst();
             };
 
+            auto isConstContainerUsage = [&](const ValueType* vt) -> bool {
+                if (!vt || !vt->container)
+                    return false;
+                const auto yield = vt->container->getYield(end->str());
+                if (yield == Library::Container::Yield::START_ITERATOR || yield == Library::Container::Yield::END_ITERATOR) {
+                    const Token* parent = tok1->astParent();
+                    while (Token::Match(parent, "(|.|::"))
+                        parent = parent->astParent();
+                    if (parent && parent->isComparisonOp())
+                        return true;
+                    // TODO: use AST
+                    if (parent && parent->isAssignmentOp() && tok1->tokAt(-2)->variable() && Token::Match(tok1->tokAt(-2)->variable()->typeEndToken(), "const_iterator|const_reverse_iterator"))
+                        return true;
+                }
+                if ((yield == Library::Container::Yield::ITEM || yield == Library::Container::Yield::AT_INDEX) &&
+                    (lhs->isComparisonOp() || lhs->isAssignmentOp() || (lhs->str() == "(" && Token::Match(lhs->astParent(), "%cop%"))))
+                    return true; // assume that these functions have const overloads
+                return false;
+            };
+
             if (end->strAt(1) == "(") {
                 const Variable *var = lastVarTok->variable();
                 if (!var)
                     return false;
-                if ((var->isStlType() // assume all std::*::size() and std::*::empty() are const
-                     && (Token::Match(end, "size|empty|cend|crend|cbegin|crbegin|max_size|length|count|capacity|get_allocator|c_str|str ( )") || Token::Match(end, "rfind|copy"))) ||
-
-                    (lastVarTok->valueType() && lastVarTok->valueType()->container &&
-                     ((lastVarTok->valueType()->container->getYield(end->str()) == Library::Container::Yield::START_ITERATOR) ||
-                      (lastVarTok->valueType()->container->getYield(end->str()) == Library::Container::Yield::END_ITERATOR))
-                     && (tok1->previous()->isComparisonOp() ||
-                         (tok1->previous()->isAssignmentOp() && tok1->tokAt(-2)->variable() && Token::Match(tok1->tokAt(-2)->variable()->typeEndToken(), "const_iterator|const_reverse_iterator"))))) {
+                if (var->isStlType() // assume all std::*::size() and std::*::empty() are const
+                    && (Token::Match(end, "size|empty|cend|crend|cbegin|crbegin|max_size|length|count|capacity|get_allocator|c_str|str ( )") || Token::Match(end, "rfind|copy"))) {
+                    // empty body
+                }
+                else if (isConstContainerUsage(lastVarTok->valueType())) {
                     // empty body
                 }
                 else if (var->smartPointerType() && var->smartPointerType()->classScope && isConstMemberFunc(var->smartPointerType()->classScope, end)) {
@@ -2611,35 +2632,41 @@ bool CheckClass::checkConstFunc(const Scope *scope, const Function *func, Member
     return true;
 }
 
-void CheckClass::checkConstError(const Token *tok, const std::string &classname, const std::string &funcname, bool suggestStatic)
+void CheckClass::checkConstError(const Token *tok, const std::string &classname, const std::string &funcname, bool suggestStatic, bool foundAllBaseClasses)
 {
-    checkConstError2(tok, nullptr, classname, funcname, suggestStatic);
+    checkConstError2(tok, nullptr, classname, funcname, suggestStatic, foundAllBaseClasses);
 }
 
-void CheckClass::checkConstError2(const Token *tok1, const Token *tok2, const std::string &classname, const std::string &funcname, bool suggestStatic)
+void CheckClass::checkConstError2(const Token *tok1, const Token *tok2, const std::string &classname, const std::string &funcname, bool suggestStatic, bool foundAllBaseClasses)
 {
     std::list<const Token *> toks{ tok1 };
     if (tok2)
         toks.push_back(tok2);
-    if (!suggestStatic)
+    if (!suggestStatic) {
+        const std::string msg = foundAllBaseClasses ?
+                                "Technically the member function '$symbol' can be const.\nThe member function '$symbol' can be made a const " :
+                                "Either there is a missing 'override', or the member function '$symbol' can be const.\nUnless it overrides a base class member, the member function '$symbol' can be made a const ";
         reportError(toks, Severity::style, "functionConst",
                     "$symbol:" + classname + "::" + funcname +"\n"
-                    "Technically the member function '$symbol' can be const.\n"
-                    "The member function '$symbol' can be made a const "
+                    + msg +
                     "function. Making this function 'const' should not cause compiler errors. "
                     "Even though the function can be made const function technically it may not make "
                     "sense conceptually. Think about your design and the task of the function first - is "
                     "it a function that must not change object internal state?", CWE398, Certainty::inconclusive);
-    else
+    }
+    else {
+        const std::string msg = foundAllBaseClasses ?
+                                "Technically the member function '$symbol' can be static (but you may consider moving to unnamed namespace).\nThe member function '$symbol' can be made a static " :
+                                "Either there is a missing 'override', or the member function '$symbol' can be static.\nUnless it overrides a base class member, the member function '$symbol' can be made a static ";
         reportError(toks, Severity::performance, "functionStatic",
                     "$symbol:" + classname + "::" + funcname +"\n"
-                    "Technically the member function '$symbol' can be static (but you may consider moving to unnamed namespace).\n"
-                    "The member function '$symbol' can be made a static "
+                    + msg +
                     "function. Making a function static can bring a performance benefit since no 'this' instance is "
                     "passed to the function. This change should not cause compiler errors but it does not "
                     "necessarily make sense conceptually. Think about your design and the task of the function first - "
                     "is it a function that must not access members of class instances? And maybe it is more appropriate "
                     "to move this function to an unnamed namespace.", CWE398, Certainty::inconclusive);
+    }
 }
 
 //---------------------------------------------------------------------------
@@ -3460,7 +3487,7 @@ bool CheckClass::checkThisUseAfterFreeRecursive(const Scope *classScope, const F
             tok = tok->tokAt(2);
         } else if (Token::Match(tok, "%var% . reset ( )") && selfPointer == tok->variable())
             freeToken = tok;
-        else if (Token::Match(tok->previous(), "!!. %name% (") && tok->function() && tok->function()->nestedIn == classScope) {
+        else if (Token::Match(tok->previous(), "!!. %name% (") && tok->function() && tok->function()->nestedIn == classScope && tok->function()->type == Function::eFunction) {
             if (isDestroyed) {
                 thisUseAfterFree(selfPointer->nameToken(), freeToken, tok);
                 return true;

@@ -4,6 +4,8 @@ if(MSVC)
 endif()
 project(Cppcheck VERSION 2.16.99 LANGUAGES CXX)
 
+include(cmake/options.cmake)
+
 include(cmake/cxx11.cmake)
 use_cxx11()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,7 +16,6 @@ include(GNUInstallDirs)
 
 include(cmake/compilerCheck.cmake)
 include(cmake/versions.cmake)
-include(cmake/options.cmake)
 include(cmake/findDependencies.cmake)
 include(cmake/compileroptions.cmake)
 include(cmake/compilerDefinitions.cmake)
@@ -68,6 +69,12 @@ if(LIBXML2_XMLLINT_EXECUTABLE)
 
     add_custom_target(validateRules ${LIBXML2_XMLLINT_EXECUTABLE} --noout ${CMAKE_SOURCE_DIR}/rules/*.xml)
 endif()
+
+# TODO: add the following Makefile features:
+# - "man/cppcheck.1" target
+# - "tags" target
+# - Cygwin handling
+# - MinGW handling
 
 if(BUILD_TESTS)
     enable_testing()

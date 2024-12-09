@@ -24,10 +24,11 @@ def __call_process(arg):
     if exe is None:
         raise Exception('executable not found')
     with subprocess.Popen([exe, arg], stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
-        comm = p.communicate()
-        stdout = comm[0].decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
-        stderr = comm[1].decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
-        return p.returncode, stdout, stderr
+        stdout, stderr = p.communicate()
+        rc = p.returncode
+    stdout = stdout.decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
+    stderr = stderr.decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
+    return rc, stdout, stderr
 
 
 def test_assert():
@@ -35,7 +36,7 @@ def test_assert():
     if sys.platform == "darwin":
         assert stderr.startswith("Assertion failed: (false), function my_assert, file test-signalhandler.cpp, line "), stderr
     else:
-        assert stderr.endswith("test-signalhandler.cpp:33: void my_assert(): Assertion `false' failed.\n"), stderr
+        assert stderr.endswith("test-signalhandler.cpp:34: void my_assert(): Assertion `false' failed.\n"), stderr
     lines = stdout.splitlines()
     assert lines[0] == 'Internal error: cppcheck received signal SIGABRT - abort or assertion'
     # no stacktrace of MacOs

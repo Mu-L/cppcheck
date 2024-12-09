@@ -4,6 +4,7 @@ import os
 import select
 import subprocess
 import time
+import tempfile
 
 # Create Cppcheck project file
 import sys
@@ -118,7 +119,7 @@ def __run_subprocess(args, env=None, cwd=None, timeout=None):
     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd)
 
     try:
-        comm = p.communicate(timeout=timeout)
+        stdout, stderr = p.communicate(timeout=timeout)
         return_code = p.returncode
         p = None
     except subprocess.TimeoutExpired:
@@ -140,10 +141,9 @@ def __run_subprocess(args, env=None, cwd=None, timeout=None):
             # sending the signal to the process groups causes the parent Python process to terminate as well
             #os.killpg(os.getpgid(p.pid), signal.SIGTERM)  # Send the signal to all the process groups
             p.terminate()
-            comm = p.communicate()
+            stdout, stderr = p.communicate()
+            p = None
 
-    stdout = comm[0]
-    stderr = comm[1]
     return return_code, stdout, stderr
 
 
@@ -187,6 +187,19 @@ def cppcheck_ex(args, env=None, remove_checkers_report=True, cwd=None, cppcheck_
             arg_executor = '--executor=' + str(os.environ['TEST_CPPCHECK_INJECT_EXECUTOR'])
             args.append(arg_executor)
 
+    builddir_tmp = None
+
+    if 'TEST_CPPCHECK_INJECT_BUILDDIR' in os.environ:
+        found_builddir = False
+        for arg in args:
+            if arg.startswith('--cppcheck-build-dir=') or arg == '--no-cppcheck-build-dir':
+                found_builddir = True
+                break
+        if not found_builddir:
+            builddir_tmp = tempfile.TemporaryDirectory(prefix=str(os.environ['TEST_CPPCHECK_INJECT_BUILDDIR']))
+            arg_clang = '--cppcheck-build-dir=' + builddir_tmp.name
+            args.append(arg_clang)
+
     logging.info(exe + ' ' + ' '.join(args))
 
     run_subprocess = __run_subprocess_tty if tty else __run_subprocess
@@ -194,6 +207,9 @@ def cppcheck_ex(args, env=None, remove_checkers_report=True, cwd=None, cppcheck_
 
     stdout = stdout.decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
     stderr = stderr.decode(encoding='utf-8', errors='ignore').replace('\r\n', '\n')
+
+    if builddir_tmp:
+        builddir_tmp.cleanup()
 
     if remove_checkers_report:
         if stderr.find('[checkersReport]\n') > 0:

@@ -22,6 +22,7 @@
 #include "mathlib.h"
 #include "platform.h"
 #include "settings.h"
+#include "standards.h"
 #include "token.h"
 #include "tokenize.h"
 #include "vfvalue.h"
@@ -136,7 +137,8 @@ private:
         TEST_CASE(valueFlowDynamicBufferSize);
 
         TEST_CASE(valueFlowSafeFunctionParameterValues);
-        TEST_CASE(valueFlowUnknownFunctionReturn);
+        TEST_CASE(valueFlowUnknownFunctionReturnRand);
+        TEST_CASE(valueFlowUnknownFunctionReturnMalloc);
 
         TEST_CASE(valueFlowPointerAliasDeref);
 
@@ -1704,7 +1706,7 @@ private:
                 "    if (x == 123) {}\n"
                 "}");
         ASSERT_EQUALS(
-            "[test.cpp:2]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable y\n",
+            "[test.cpp:2]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable y\n",
             errout_str());
     }
 
@@ -1819,6 +1821,23 @@ private:
                "    }\n"
                "}";
         ASSERT_EQUALS(false, testValueOfX(code, 2U, 0));
+
+        code = "struct S {\n" // #12848
+               "    S* next;\n"
+               "    int a;\n"
+               "};\n"
+               "void f(S* x, int i) {\n"
+               "    while (x) {\n"
+               "        if (x->a == 0) {\n"
+               "            x = x->next;\n"
+               "            continue;\n"
+               "        }\n"
+               "        if (i == 0)\n"
+               "            break;\n"
+               "        x->a = i--;\n"
+               "    }\n"
+               "}\n";
+        ASSERT_EQUALS(false, testValueOfX(code, 13U, 0));
     }
 
     void valueFlowBeforeConditionTernaryOp() { // bailout: ?:
@@ -1828,7 +1847,7 @@ private:
                 "    y = ((x<0) ? x : ((x==2)?3:4));\n"
                 "}");
         ASSERT_EQUALS(
-            "[test.cpp:2]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable y\n",
+            "[test.cpp:2]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable y\n",
             errout_str());
 
         bailout("int f(int x) {\n"
@@ -1893,7 +1912,7 @@ private:
                 "    if (x == 123) {}\n"
                 "}");
         ASSERT_EQUALS(
-            "[test.cpp:2]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable b\n",
+            "[test.cpp:2]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable b\n",
             errout_str());
 
         code = "void f(int x, bool abc) {\n"
@@ -1942,7 +1961,7 @@ private:
                 "    };\n"
                 "}");
         ASSERT_EQUALS(
-            "[test.cpp:3]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable a\n",
+            "[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable a\n",
             errout_str());
 
         bailout("void f(int x, int y) {\n"
@@ -1952,7 +1971,7 @@ private:
                 "    };\n"
                 "}");
         ASSERT_EQUALS(
-            "[test.cpp:3]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable a\n",
+            "[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable a\n",
             errout_str());
     }
 
@@ -1964,7 +1983,7 @@ private:
                 "    M;\n"
                 "}");
         ASSERT_EQUALS_WITHOUT_LINENUMBERS(
-            "[test.cpp:3]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable a\n"
+            "[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable a\n"
             "[test.cpp:4]: (debug) valueflow.cpp:1260:(valueFlow) bailout: variable 'x', condition is defined in macro\n"
             "[test.cpp:4]: (debug) valueflow.cpp:1260:(valueFlow) bailout: variable 'x', condition is defined in macro\n", // duplicate
             errout_str());
@@ -1975,7 +1994,7 @@ private:
                 "    FREE(x);\n"
                 "}");
         ASSERT_EQUALS_WITHOUT_LINENUMBERS(
-            "[test.cpp:3]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable a\n"
+            "[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable a\n"
             "[test.cpp:4]: (debug) valueflow.cpp:1260:(valueFlow) bailout: variable 'x', condition is defined in macro\n"
             "[test.cpp:4]: (debug) valueflow.cpp:1260:(valueFlow) bailout: variable 'x', condition is defined in macro\n", // duplicate
             errout_str());
@@ -1990,7 +2009,7 @@ private:
                 "    if (x==123){}\n"
                 "}");
         ASSERT_EQUALS_WITHOUT_LINENUMBERS(
-            "[test.cpp:3]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable a\n"
+            "[test.cpp:3]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable a\n"
             "[test.cpp:2]: (debug) valueflow.cpp::(valueFlow) bailout: valueFlowAfterCondition: bailing in conditional block\n"
             "[test.cpp:2]: (debug) valueflow.cpp::(valueFlow) bailout: valueFlowAfterCondition: bailing in conditional block\n", // duplicate
             errout_str());
@@ -4583,6 +4602,86 @@ private:
         ASSERT_EQUALS(true, values.empty());
         values = tokenValues(code, "[ f . b");
         ASSERT_EQUALS(true, values.empty());
+
+        code = "void f() {\n" // #13109
+               "    const int a[10] = {};\n"
+               "    for (int n = 0; 1; ++n) {\n"
+               "        (void)a[n];\n"
+               "        break;\n"
+               "    }\n"
+               "}\n";
+        values = tokenValues(code, "n ]");
+        ASSERT_EQUALS(2, values.size());
+        auto it = values.begin();
+        ASSERT_EQUALS(-1, it->intvalue);
+        ASSERT(it->isImpossible());
+        ++it;
+        ASSERT_EQUALS(0, it->intvalue);
+        ASSERT(it->isPossible());
+
+        code = "void f() {\n"
+               "    const int a[10] = {};\n"
+               "    for (int n = 0; 1; ++n) {\n"
+               "        if (a[n] < 1)\n"
+               "            break;\n"
+               "    }\n"
+               "}\n";
+        values = tokenValues(code, "n ]");
+        ASSERT_EQUALS(2, values.size());
+        it = values.begin();
+        ASSERT_EQUALS(-1, it->intvalue);
+        ASSERT(it->isImpossible());
+        ++it;
+        ASSERT_EQUALS(0, it->intvalue);
+        ASSERT(it->isPossible());
+
+        code = "void f() {\n"
+               "    const int a[10] = {};\n"
+               "    for (int n = 0; 1; ++n) {\n"
+               "        if (a[n] < 1)\n"
+               "            throw 0;\n"
+               "    }\n"
+               "}\n";
+        values = tokenValues(code, "n ]");
+        ASSERT_EQUALS(2, values.size());
+        it = values.begin();
+        ASSERT_EQUALS(-1, it->intvalue);
+        ASSERT(it->isImpossible());
+        ++it;
+        ASSERT_EQUALS(0, it->intvalue);
+        ASSERT(it->isPossible());
+
+        code = "void f() {\n"
+               "    const int a[10] = {};\n"
+               "    for (int n = 0; 1; ++n) {\n"
+               "        (void)a[n];\n"
+               "        exit(1);\n"
+               "    }\n"
+               "}\n";
+        values = tokenValues(code, "n ]");
+        ASSERT_EQUALS(2, values.size());
+        it = values.begin();
+        ASSERT_EQUALS(-1, it->intvalue);
+        ASSERT(it->isImpossible());
+        ++it;
+        ASSERT_EQUALS(0, it->intvalue);
+        ASSERT(it->isPossible());
+
+        code = "void f() {\n"
+               "    const int a[10] = {};\n"
+               "    for (int n = 0; 1; ++n) {\n"
+               "        if (a[n] < 1)\n"
+               "            exit(1);\n"
+               "    }\n"
+               "}\n";
+        values = tokenValues(code, "n ]");
+        ASSERT_EQUALS(2, values.size());
+        it = values.begin();
+        ASSERT_EQUALS(-1, it->intvalue);
+        ASSERT(it->isImpossible());
+        ++it;
+        ASSERT_EQUALS(0, it->intvalue);
+        ASSERT(it->isPossible());
     }
 
     void valueFlowSubFunction() {
@@ -7142,7 +7241,7 @@ private:
     }
 
 
-    void valueFlowUnknownFunctionReturn() {
+    void valueFlowUnknownFunctionReturnRand() {
         const char *code;
         std::list<ValueFlow::Value> values;
         /*const*/ Settings s = settingsBuilder().library("std.cfg").build();
@@ -7154,6 +7253,19 @@ private:
         ASSERT_EQUALS(INT_MIN, values.front().intvalue);
         ASSERT_EQUALS(INT_MAX, values.back().intvalue);
     }
+
+    void valueFlowUnknownFunctionReturnMalloc() { // #4626
+        const char *code;
+        const Settings s = settingsBuilder().library("std.cfg").build();
+
+        code = "ptr = malloc(10);";
+        const auto& values = tokenValues(code, "(", &s);
+        ASSERT_EQUALS(1, values.size());
+        ASSERT_EQUALS(true, values.front().isIntValue());
+        ASSERT_EQUALS(true, values.front().isPossible());
+        ASSERT_EQUALS(0, values.front().intvalue);
+    }
+
 
     void valueFlowPointerAliasDeref() {
         const char* code;
@@ -8660,8 +8772,8 @@ private:
             "}\n"
             );
         ASSERT_EQUALS_WITHOUT_LINENUMBERS(
-            "[test.cpp:2]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable VALUE_1\n"
-            "[test.cpp:6]: (debug) analyzeConditionExpressions bailout: Skipping function due to incomplete variable VALUE_2\n",
+            "[test.cpp:2]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable VALUE_1\n"
+            "[test.cpp:6]: (debug) valueFlowConditionExpressions bailout: Skipping function due to incomplete variable VALUE_2\n",
             errout_str());
     }
 

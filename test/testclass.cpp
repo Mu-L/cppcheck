@@ -186,6 +186,9 @@ private:
         TEST_CASE(const92);
         TEST_CASE(const93);
         TEST_CASE(const94);
+        TEST_CASE(const95); // #13320 - do not warn about r-value ref method
+        TEST_CASE(const96);
+        TEST_CASE(const97);
 
         TEST_CASE(const_handleDefaultParameters);
         TEST_CASE(const_passThisToMemberOfOtherClass);
@@ -5040,7 +5043,7 @@ private:
                    "public:\n"
                    "    void f(){}\n"
                    "};");
-        ASSERT_EQUALS("", errout_str());
+        ASSERT_EQUALS("[test.cpp:3]: (performance, inconclusive) Either there is a missing 'override', or the member function 'derived::f' can be static.\n", errout_str());
     }
 
     void const34() { // ticket #1964
@@ -5826,7 +5829,8 @@ private:
                    "      inherited::set(inherited::Key(key));\n"
                    "  }\n"
                    "};\n", nullptr, false);
-        ASSERT_EQUALS("", errout_str());
+        ASSERT_EQUALS("[test.cpp:4] -> [test.cpp:2]: (performance, inconclusive) Either there is a missing 'override', or the member function 'MixerParticipant::GetAudioFrame' can be static.\n",
+                      errout_str());
     }
 
     void const62() {
@@ -6673,8 +6677,6 @@ private:
                    "struct S<0> {};\n"
                    "struct D : S<150> {};\n");
         // don't hang
-        // we are not interested in the output - just consume it
-        ignore_errout();
     }
 
     void const93() { // #12162
@@ -6703,6 +6705,71 @@ private:
                    "    void nop() {}\n"
                    "};\n");
         ASSERT_EQUALS("", errout_str());
+    }
+
+    void const95() { // #13320
+        checkConst("class C {\n"
+                   "    std::string x;\n"
+                   "    std::string get() && { return x; }\n"
+                   "};\n");
+        ASSERT_EQUALS("", errout_str());
+    }
+
+    void const96() {
+        checkConst("struct S : B {\n" // #13282
+                   "    bool f() { return b; }\n"
+                   "    bool g() override { return b; }\n"
+                   "    bool b;\n"
+                   "};\n");
+        ASSERT_EQUALS("[test.cpp:2]: (style, inconclusive) Either there is a missing 'override', or the member function 'S::f' can be const.\n", errout_str());
+
+        checkConst("struct B;\n" // #13382
+                   "struct S : B {\n"
+                   "    void f();\n"
+                   "};\n"
+                   "void S::f() {\n"
+                   "    B::g(0);\n"
+                   "}\n");
+        ASSERT_EQUALS("", errout_str());
+    }
+
+    void const97() { // #13301
+        checkConst("struct S {\n"
+                   "    std::vector<int> v;\n"
+                   "    int f() {\n"
+                   "        const int& r = v.front();\n"
+                   "        return r;\n"
+                   "    }\n"
+                   "    int g() {\n"
+                   "        const int& r = v.at(0);\n"
+                   "        return r;\n"
+                   "    }\n"
+                   "    void h() {\n"
+                   "        if (v.front() == 0) {}\n"
+                   "        if (1 == v.front()) {}\n"
+                   "    }\n"
+                   "    void i() {\n"
+                   "        v.at(0) = 0;\n"
+                   "    }\n"
+                   "    void j() {\n"
+                   "        dostuff(1, v.at(0));\n"
+                   "    }\n"
+                   "    void k() {\n"
+                   "        int& r = v.front();\n"
+                   "        r = 0;\n"
+                   "    }\n"
+                   "};\n");
+        ASSERT_EQUALS("[test.cpp:3]: (style, inconclusive) Technically the member function 'S::f' can be const.\n"
+                      "[test.cpp:7]: (style, inconclusive) Technically the member function 'S::g' can be const.\n"
+                      "[test.cpp:11]: (style, inconclusive) Technically the member function 'S::h' can be const.\n",
+                      errout_str());
+
+        checkConst("struct B { std::string s; };\n"
+                   "struct D : B {\n"
+                   "    bool f(std::string::iterator it) { return it == B::s.begin(); }\n"
+                   "};\n");
+        ASSERT_EQUALS("[test.cpp:3]: (style, inconclusive) Technically the member function 'D::f' can be const.\n",
+                      errout_str());
     }
 
     void const_handleDefaultParameters() {
@@ -8927,6 +8994,22 @@ private:
                               "    auto done = [this] () { delete p; };\n"
                               "    dostuff();\n"
                               "    done();\n"
+                              "}");
+        ASSERT_EQUALS("", errout_str());
+
+        checkThisUseAfterFree("class C {\n" // #13311
+                              "public:\n"
+                              "    static void init();\n"
+                              "private:\n"
+                              "    C();\n"
+                              "    static C* self;\n"
+                              "    bool use;\n"
+                              "};\n"
+                              "C::C() { use = true; }\n"
+                              "void C::init() {\n"
+                              "    if (self)\n"
+                              "        delete self;\n"
+                              "    self = new C();\n"
                               "}");
         ASSERT_EQUALS("", errout_str());
     }
