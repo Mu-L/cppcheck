@@ -665,6 +665,7 @@ namespace {
     class Fred : public QObject {
         Q_OBJECT
     private slots:
+        // cppcheck-suppress functionStatic
         void foo();
     };
     void Fred::foo() {}
@@ -726,6 +727,7 @@ namespace {
         ~MyObject1() {}
     public slots:
     signals:
+        // cppcheck-suppress functionStatic
         void test() {}
     };
 
@@ -802,3 +804,11 @@ const QString& unassignedVariable_static_QString() // #12935
     static QString qs;
     return qs;
 }
+
+struct BQObject_missingOverride { // #13406
+    Q_OBJECT
+};
+
+struct DQObject_missingOverride : BQObject_missingOverride {
+    Q_OBJECT
+};

@@ -31,10 +31,12 @@ jobs:
       image: ${{ matrix.image }}
 
     env:
-      QT_VERSION: 6.7.3
+      QT_VERSION: 6.8.1
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install missing software on debian/ubuntu
         if: contains(matrix.image, 'debian')
@@ -98,6 +100,7 @@ jobs:
 
       - name: Prepare CMake
         run: |
+          # TODO: why does it build dmake in the next step?
           cmake -S . -B cmake.output -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DHAVE_RULES=On -DBUILD_TESTS=On -DBUILD_GUI=On -DUSE_QT6=On -DWITH_QCHART=On -DENABLE_CHECK_INTERNAL=On -DCMAKE_GLOBAL_AUTOGEN_TARGET=On -DCMAKE_DISABLE_PRECOMPILE_HEADERS=On -DCPPCHK_GLIBCXX_DEBUG=Off -DUSE_MATCHCOMPILER=Off -DEXTERNALS_AS_SYSTEM=On -DUSE_LIBCXX=${{ matrix.use_libcxx }}
         env:
           CC: clang
@@ -153,10 +156,12 @@ jobs:
     if: ${{ github.repository_owner == 'danmar' }}
 
     env:
-      QT_VERSION: 6.7.3
+      QT_VERSION: 6.8.1
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install missing software
         run: |
@@ -188,6 +193,7 @@ jobs:
 
       - name: Prepare CMake
         run: |
+          # TODO: why does it build dmake in the next step?
           cmake -S . -B cmake.output -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DHAVE_RULES=On -DBUILD_TESTS=On -DBUILD_GUI=On -DUSE_QT6=On -DWITH_QCHART=On -DENABLE_CHECK_INTERNAL=On -DCMAKE_GLOBAL_AUTOGEN_TARGET=On -DCMAKE_DISABLE_PRECOMPILE_HEADERS=On -DCPPCHK_GLIBCXX_DEBUG=Off -DUSE_MATCHCOMPILER=Off -DEXTERNALS_AS_SYSTEM=On -DUSE_LIBCXX=${{ matrix.use_libcxx }}
         env:
           CC: clang-19

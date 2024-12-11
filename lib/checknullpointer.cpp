@@ -442,6 +442,8 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
         reportError(tok, Severity::error, "nullPointer", "Null pointer dereference", CWE_NULL_POINTER_DEREFERENCE, Certainty::normal);
         reportError(tok, Severity::warning, "nullPointerDefaultArg", errmsgdefarg, CWE_NULL_POINTER_DEREFERENCE, Certainty::normal);
         reportError(tok, Severity::warning, "nullPointerRedundantCheck", errmsgcond, CWE_NULL_POINTER_DEREFERENCE, Certainty::normal);
+        reportError(tok, Severity::warning, "nullPointerOutOfMemory", "Null pointer dereference", CWE_NULL_POINTER_DEREFERENCE, Certainty::normal);
+        reportError(tok, Severity::warning, "nullPointerOutOfResources", "Null pointer dereference", CWE_NULL_POINTER_DEREFERENCE, Certainty::normal);
         return;
     }
 
@@ -461,12 +463,23 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
         reportError(errorPath, Severity::warning, "nullPointerDefaultArg", errmsgdefarg, CWE_NULL_POINTER_DEREFERENCE, inconclusive || value->isInconclusive() ? Certainty::inconclusive : Certainty::normal);
     } else {
         std::string errmsg = std::string(value->isKnown() ? "Null" : "Possible null") + " pointer dereference";
+
+        std::string id = "nullPointer";
+        if (value->unknownFunctionReturn == ValueFlow::Value::UnknownFunctionReturn::outOfMemory) {
+            errmsg = "If memory allocation fails, then there is a " + ((char)std::tolower(errmsg[0]) + errmsg.substr(1));
+            id += "OutOfMemory";
+        }
+        else if (value->unknownFunctionReturn == ValueFlow::Value::UnknownFunctionReturn::outOfResources) {
+            errmsg = "If resource allocation fails, then there is a " + ((char)std::tolower(errmsg[0]) + errmsg.substr(1));
+            id += "OutOfResources";
+        }
+
         if (!varname.empty())
             errmsg = "$symbol:" + varname + '\n' + errmsg + ": $symbol";
 
         reportError(errorPath,
                     value->isKnown() ? Severity::error : Severity::warning,
-                    "nullPointer",
+                    id.c_str(),
                     errmsg,
                     CWE_NULL_POINTER_DEREFERENCE, inconclusive || value->isInconclusive() ? Certainty::inconclusive : Certainty::normal);
     }
@@ -529,10 +542,21 @@ void CheckNullPointer::pointerArithmeticError(const Token* tok, const ValueFlow:
     } else {
         errmsg = "Pointer " + arithmetic + " with NULL pointer.";
     }
+
+    std::string id = "nullPointerArithmetic";
+    if (value && value->unknownFunctionReturn == ValueFlow::Value::UnknownFunctionReturn::outOfMemory) {
+        errmsg = "If memory allocation fail: " + ((char)std::tolower(errmsg[0]) + errmsg.substr(1));
+        id += "OutOfMemory";
+    }
+    else if (value && value->unknownFunctionReturn == ValueFlow::Value::UnknownFunctionReturn::outOfResources) {
+        errmsg = "If resource allocation fail: " + ((char)std::tolower(errmsg[0]) + errmsg.substr(1));
+        id += "OutOfResources";
+    }
+
     const ErrorPath errorPath = getErrorPath(tok, value, "Null pointer " + arithmetic);
     reportError(errorPath,
                 Severity::error,
-                "nullPointerArithmetic",
+                id.c_str(),
                 errmsg,
                 CWE_INCORRECT_CALCULATION,
                 inconclusive ? Certainty::inconclusive : Certainty::normal);
