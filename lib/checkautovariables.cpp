@@ -143,14 +143,14 @@ static bool isAutoVarArray(const Token *tok)
     return false;
 }
 
-static bool isLocalContainerBuffer(const Token* tok)
+static bool isLocalContainerBuffer(const Token* tok, const Settings& settings)
 {
     if (!tok)
         return false;
 
     // x+y
     if (tok->str() == "+")
-        return isLocalContainerBuffer(tok->astOperand1()) || isLocalContainerBuffer(tok->astOperand2());
+        return isLocalContainerBuffer(tok->astOperand1(), settings) || isLocalContainerBuffer(tok->astOperand2(), settings);
 
     if (tok->str() != "(" || !Token::simpleMatch(tok->astOperand1(), "."))
         return false;
@@ -161,7 +161,7 @@ static bool isLocalContainerBuffer(const Token* tok)
     if (!var || !var->isLocal() || var->isStatic())
         return false;
 
-    const Library::Container::Yield yield = astContainerYield(tok);
+    const Library::Container::Yield yield = astContainerYield(tok, settings.library);
 
     return yield == Library::Container::Yield::BUFFER || yield == Library::Container::Yield::BUFFER_NT;
 }
@@ -237,8 +237,8 @@ void CheckAutoVariables::assignFunctionArg()
     }
 }
 
-static bool isAutoVariableRHS(const Token* tok) {
-    return isAddressOfLocalVariable(tok) || isAutoVarArray(tok) || isLocalContainerBuffer(tok);
+static bool isAutoVariableRHS(const Token* tok, const Settings& settings) {
+    return isAddressOfLocalVariable(tok) || isAutoVarArray(tok) || isLocalContainerBuffer(tok, settings);
 }
 
 static bool hasOverloadedAssignment(const Token* tok, bool& inconclusive)
@@ -275,15 +275,15 @@ void CheckAutoVariables::autoVariables()
                 continue;
             }
             // Critical assignment
-            if (Token::Match(tok, "[;{}] %var% =") && isRefPtrArg(tok->next()) && isAutoVariableRHS(tok->tokAt(2)->astOperand2())) {
+            if (Token::Match(tok, "[;{}] %var% =") && isRefPtrArg(tok->next()) && isAutoVariableRHS(tok->tokAt(2)->astOperand2(), *mSettings)) {
                 checkAutoVariableAssignment(tok->next(), false);
-            } else if (Token::Match(tok, "[;{}] * %var% =") && isPtrArg(tok->tokAt(2)) && isAutoVariableRHS(tok->tokAt(3)->astOperand2())) {
+            } else if (Token::Match(tok, "[;{}] * %var% =") && isPtrArg(tok->tokAt(2)) && isAutoVariableRHS(tok->tokAt(3)->astOperand2(), *mSettings)) {
                 const Token* lhs = tok->tokAt(2);
                 bool inconclusive = false;
                 if (!hasOverloadedAssignment(lhs, inconclusive) || (printInconclusive && inconclusive))
                     checkAutoVariableAssignment(tok->next(), inconclusive);
                 tok = tok->tokAt(4);
-            } else if (Token::Match(tok, "[;{}] %var% . %var% =") && isPtrArg(tok->next()) && isAutoVariableRHS(tok->tokAt(4)->astOperand2())) {
+            } else if (Token::Match(tok, "[;{}] %var% . %var% =") && isPtrArg(tok->next()) && isAutoVariableRHS(tok->tokAt(4)->astOperand2(), *mSettings)) {
                 const Token* lhs = tok->tokAt(3);
                 bool inconclusive = false;
                 if (!hasOverloadedAssignment(lhs, inconclusive) || (printInconclusive && inconclusive))
@@ -291,7 +291,7 @@ void CheckAutoVariables::autoVariables()
                 tok = tok->tokAt(5);
             } else if (Token::Match(tok, "[;{}] %var% [") && Token::simpleMatch(tok->linkAt(2), "] =") &&
                        (isPtrArg(tok->next()) || isArrayArg(tok->next(), *mSettings)) &&
-                       isAutoVariableRHS(tok->linkAt(2)->next()->astOperand2())) {
+                       isAutoVariableRHS(tok->linkAt(2)->next()->astOperand2(), *mSettings)) {
                 errorAutoVariableAssignment(tok->next(), false);
             }
             // Invalid pointer deallocation
@@ -463,9 +463,9 @@ static int getPointerDepth(const Token *tok)
     return n;
 }
 
-static bool isDeadTemporary(const Token* tok, const Token* expr, const Library* library)
+static bool isDeadTemporary(const Token* tok, const Token* expr, const Library& library)
 {
-    if (!isTemporary(tok, library))
+    if (!isTemporary(tok, &library))
         return false;
     if (expr) {
         if (!precedes(nextAfterAstRightmostLeaf(tok->astTop()), nextAfterAstRightmostLeaf(expr->astTop())))
@@ -562,7 +562,7 @@ void CheckAutoVariables::checkVarLifetimeScope(const Token * start, const Token 
                     errorReturnReference(tok, lt.errorPath, lt.inconclusive);
                     break;
                 }
-                if (isDeadTemporary(lt.token, nullptr, &mSettings->library)) {
+                if (isDeadTemporary(lt.token, nullptr, mSettings->library)) {
                     errorReturnTempReference(tok, lt.errorPath, lt.inconclusive);
                     break;
                 }
@@ -584,7 +584,7 @@ void CheckAutoVariables::checkVarLifetimeScope(const Token * start, const Token 
                 if (!printInconclusive && lt.inconclusive)
                     continue;
                 const Token * tokvalue = lt.token;
-                if (isDeadTemporary(tokvalue, tok, &mSettings->library)) {
+                if (isDeadTemporary(tokvalue, tok, mSettings->library)) {
                     errorDanglingTempReference(tok, lt.errorPath, lt.inconclusive);
                     break;
                 }
@@ -614,7 +614,7 @@ void CheckAutoVariables::checkVarLifetimeScope(const Token * start, const Token 
                             continue;
                         if ((tokvalue->variable() && !isEscapedReference(tokvalue->variable()) &&
                              isInScope(tokvalue->variable()->nameToken(), scope)) ||
-                            isDeadTemporary(tokvalue, nullptr, &mSettings->library)) {
+                            isDeadTemporary(tokvalue, nullptr, mSettings->library)) {
                             errorReturnDanglingLifetime(tok, &val);
                             break;
                         }
@@ -622,7 +622,7 @@ void CheckAutoVariables::checkVarLifetimeScope(const Token * start, const Token 
                         errorInvalidLifetime(tok, &val);
                         break;
                     } else if (!tokvalue->variable() &&
-                               isDeadTemporary(tokvalue, tok, &mSettings->library)) {
+                               isDeadTemporary(tokvalue, tok, mSettings->library)) {
                         if (!diag(tokvalue))
                             errorDanglingTemporaryLifetime(tok, &val, tokvalue);
                         break;

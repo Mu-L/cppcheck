@@ -123,7 +123,7 @@ const Token* findExpression(nonneg int exprid,
 const Token* findExpression(const Token* start, nonneg int exprid);
 
 /** Does code execution escape from the given scope? */
-const Token* findEscapeStatement(const Scope* scope, const Library* library);
+const Token* findEscapeStatement(const Scope* scope, const Library& library);
 
 std::vector<const Token*> astFlatten(const Token* tok, const char* op);
 std::vector<Token*> astFlatten(Token* tok, const char* op);
@@ -164,8 +164,8 @@ bool astIsContainerView(const Token* tok);
 bool astIsContainerOwned(const Token* tok);
 bool astIsContainerString(const Token* tok);
 
-Library::Container::Action astContainerAction(const Token* tok, const Token** ftok = nullptr, const Settings* settings = nullptr);
-Library::Container::Yield astContainerYield(const Token* tok, const Token** ftok = nullptr, const Settings* settings = nullptr);
+Library::Container::Action astContainerAction(const Token* tok, const Library& library, const Token** ftok = nullptr);
+Library::Container::Yield astContainerYield(const Token* tok, const Library& library, const Token** ftok = nullptr);
 
 Library::Container::Yield astFunctionYield(const Token* tok, const Settings& settings, const Token** ftok = nullptr);
 
@@ -298,7 +298,7 @@ bool isWithoutSideEffects(const Token* tok, bool checkArrayAccess = false, bool 
 
 bool isUniqueExpression(const Token* tok);
 
-bool isEscapeFunction(const Token* ftok, const Library* library);
+bool isEscapeFunction(const Token* ftok, const Library& library);
 
 /** Is scope a return scope (scope will unconditionally return) */
 CPPCHECKLIB bool isReturnScope(const Token* endToken,
