@@ -13,6 +13,14 @@ from testutils import cppcheck, assert_cppcheck, cppcheck_ex, __lookup_cppcheck_
 from xml.etree import ElementTree
 
 
+try:
+    # TODO: handle exitcode?
+    subprocess.call(['clang-tidy', '--version'])
+    __has_clang_tidy = True
+except OSError:
+    __has_clang_tidy = False
+
+
 def __remove_verbose_log(l : list):
     l.remove('Defines:')
     l.remove('Undefines:')
@@ -954,10 +962,8 @@ def test_unused_function_include(tmpdir):
     __test_unused_function_include(tmpdir, [])
 
 
-# TODO: test with clang-tidy
-# TODO: test with --addon
 # TODO: test with multiple files
-def __test_showtime(tmp_path, showtime, exp_res, exp_last, use_compdb, extra_args=None):
+def __test_showtime(tmp_path, showtime, exp_res, exp_last, use_compdb=False, use_addons=False, use_clang_tidy=False, extra_args=None):
     test_file = tmp_path / 'test.cpp'  # the use of C++ is intentional
     with open(test_file, 'wt') as f:
         f.write(
@@ -973,6 +979,17 @@ void f()
         '--quiet',
         '--inline-suppr'
     ]
+
+    if use_addons:
+        args += ['--addon=misra', '--addon=misc']
+
+    if use_clang_tidy:
+        args += ['--clang-tidy']
+        args += ['--suppress=clang-tidy-misc-use-internal-linkage']
+        args += ['--suppress=clang-tidy-google-readability-casting']
+        args += ['--suppress=clang-tidy-modernize-avoid-c-style-cast']
+        args += ['--suppress=clang-tidy-hicpp-use-nullptr']
+        args += ['--suppress=clang-tidy-modernize-use-nullptr']
 
     if use_compdb:
         compdb_file = tmp_path / 'compile_commands.json'
@@ -991,6 +1008,9 @@ void f()
     exp_len = exp_res
     if 'cppcheck internal API usage' in stdout:
         exp_len += 1
+    if use_addons:
+        exp_len += 1  # TODO: should have individual entries for each addon and whole program analysis
+    # TODO: add entry for clang-tidy analysis
     exp_len += 1  # last line
     assert len(lines) == exp_len
     for i in range(1, exp_res):
@@ -1000,118 +1020,154 @@ void f()
     assert stderr == ''
 
 
-def __test_showtime_top5_file(tmp_path, use_compdb):
-    __test_showtime(tmp_path, 'top5_file', 5, 'Check time: ', use_compdb)
+def __test_showtime_top5_file(tmp_path, use_compdb=False):
+    __test_showtime(tmp_path, 'top5_file', 5, 'Check time: ', use_compdb=use_compdb)
 
 
 def test_showtime_top5_file(tmp_path):
-    __test_showtime_top5_file(tmp_path, False)
+    __test_showtime_top5_file(tmp_path)
 
 
 def test_showtime_top5_file_compdb(tmp_path):
-    __test_showtime_top5_file(tmp_path, True)
+    __test_showtime_top5_file(tmp_path, use_compdb=True)
 
 
 # TODO: remove extra args when --executor=process works
-def __test_showtime_top5_summary(tmp_path, use_compdb):
-    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', use_compdb, ['-j1'])
+def __test_showtime_top5_summary(tmp_path, use_compdb=False):
+    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', use_compdb=use_compdb, extra_args=['-j1'])
 
 
 def test_showtime_top5_summary(tmp_path):
-    __test_showtime_top5_summary(tmp_path, False)
+    __test_showtime_top5_summary(tmp_path)
 
 
 def test_showtime_top5_summary_compdb(tmp_path):
-    __test_showtime_top5_summary(tmp_path, True)
+    __test_showtime_top5_summary(tmp_path, use_compdb=True)
 
 
 # TODO: remove when --executor=process works
 def test_showtime_top5_summary_j_thread(tmp_path):
-    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', False, ['-j2', '--executor=thread'])
+    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', extra_args=['-j2', '--executor=thread'])
 
 
 # TODO: remove when --executor=process works
 def test_showtime_top5_summary_compdb_j_thread(tmp_path):
-    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', True, ['-j2', '--executor=thread'])
+    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', use_compdb=True, extra_args=['-j2', '--executor=thread'])
 
 
 # TODO: remove override when fixed
 @pytest.mark.skipif(sys.platform == 'win32', reason="requires ProcessExecutor")
 @pytest.mark.xfail(strict=True)  # TODO: need to transfer the timer results to parent process - see #4452
 def test_showtime_top5_summary_j_process(tmp_path):
-    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', False, ['-j2', '--executor=process'])
+    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', extra_args=['-j2', '--executor=process'])
 
 
 # TODO: remove override when fixed
 @pytest.mark.skipif(sys.platform == 'win32', reason="requires ProcessExecutor")
 @pytest.mark.xfail(strict=True)  # TODO: need to transfer the timer results to parent process - see #4452
 def test_showtime_top5_summary_compdb_j_process(tmp_path):
-    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', True, ['-j2', '--executor=process'])
+    __test_showtime(tmp_path, 'top5_summary', 5, 'Overall time: ', use_compdb=True, extra_args=['-j2', '--executor=process'])
 
 
-def __test_showtime_file(tmp_path, use_compdb):
+def __test_showtime_file(tmp_path, use_compdb=False, use_addons=False, use_clang_tidy=False):
     exp_res = 79
     # project analysis does not call Preprocessor::getConfig()
     if use_compdb:
         exp_res -= 1
-    __test_showtime(tmp_path, 'file', exp_res, 'Check time: ', use_compdb)
+    __test_showtime(tmp_path, 'file', exp_res, 'Check time: ', use_compdb=use_compdb, use_addons=use_addons, use_clang_tidy=use_clang_tidy)
 
 
 def test_showtime_file(tmp_path):
-    __test_showtime_file(tmp_path, False)
+    __test_showtime_file(tmp_path)
 
 
 def test_showtime_file_compdb(tmp_path):
-    __test_showtime_file(tmp_path, True)
+    __test_showtime_file(tmp_path, use_compdb=True)
+
+
+def test_showtime_file_addon(tmp_path):
+    __test_showtime_file(tmp_path, use_addons=True)
+
+
+def test_showtime_file_addon_compdb(tmp_path):
+    __test_showtime_file(tmp_path, use_addons=True, use_compdb=True)
+
+
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
+def test_showtime_file_clang_tidy(tmp_path):
+    __test_showtime_file(tmp_path, use_clang_tidy=True)
+
+
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
+def test_showtime_file_clang_tidy_compdb(tmp_path):
+    __test_showtime_file(tmp_path, use_clang_tidy=True, use_compdb=True)
 
 
 # TODO: remove extra args when --executor=process works
-def __test_showtime_summary(tmp_path, use_compdb):
+def __test_showtime_summary(tmp_path, use_compdb=False, use_addons=False, use_clang_tidy=False):
     exp_res = 79
     # project analysis does not call Preprocessor::getConfig()
     if use_compdb:
         exp_res -= 1
-    __test_showtime(tmp_path, 'summary', exp_res, 'Overall time: ', use_compdb, ['-j1'])
+    __test_showtime(tmp_path, 'summary', exp_res, 'Overall time: ', use_compdb=use_compdb, use_addons=use_addons, use_clang_tidy=use_clang_tidy, extra_args=['-j1'])
 
 
 def test_showtime_summary(tmp_path):
-    __test_showtime_summary(tmp_path, False,)
+    __test_showtime_summary(tmp_path)
 
 
 def test_showtime_summary_compdb(tmp_path):
-    __test_showtime_summary(tmp_path, True)
+    __test_showtime_summary(tmp_path, use_compdb=True)
+
+
+def test_showtime_summary_addon(tmp_path):
+    __test_showtime_summary(tmp_path, use_addons=True)
+
+
+def test_showtime_summary_addon_compdb(tmp_path):
+    __test_showtime_summary(tmp_path, use_addons=True, use_compdb=True)
+
+
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
+def test_showtime_summary_clang_tidy(tmp_path):
+    __test_showtime_summary(tmp_path, use_clang_tidy=True)
+
+
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
+def test_showtime_summary_clang_tidy_compdb(tmp_path):
+    __test_showtime_summary(tmp_path, use_clang_tidy=True, use_compdb=True)
 
 
 # TODO: remove when --executor=process works
 def test_showtime_summary_j_thread(tmp_path):
-    __test_showtime(tmp_path, 'summary', 79, 'Overall time: ', False, ['-j2', '--executor=thread'])
+    __test_showtime(tmp_path, 'summary', 79, 'Overall time: ', extra_args=['-j2', '--executor=thread'])
 
 
 # TODO: remove when --executor=process works
 def test_showtime_summary_compdb_j_thread(tmp_path):
-    __test_showtime(tmp_path, 'summary', 78, 'Overall time: ', True, ['-j2', '--executor=thread'])
+    __test_showtime(tmp_path, 'summary', 78, 'Overall time: ', use_compdb=True, extra_args=['-j2', '--executor=thread'])
 
 
 # TODO: remove override when fixed
 @pytest.mark.skipif(sys.platform == 'win32', reason="requires ProcessExecutor")
 @pytest.mark.xfail(strict=True)  # TODO: need to transfer the timer results to parent process - see #4452
 def test_showtime_summary_j_process(tmp_path):
-    __test_showtime(tmp_path, 'summary', 79, 'Overall time: ', False, ['-j2', '--executor=process'])
+    __test_showtime(tmp_path, 'summary', 79, 'Overall time: ', extra_args=['-j2', '--executor=process'])
 
 
 # TODO: remove override when fixed
 @pytest.mark.skipif(sys.platform == 'win32', reason="requires ProcessExecutor")
 @pytest.mark.xfail(strict=True)  # TODO: need to transfer the timer results to parent process - see #4452
 def test_showtime_summary_compdb_j_process(tmp_path):
-    __test_showtime(tmp_path, 'summary', 78, 'Overall time: ', True, ['-j2', '--executor=process'])
+    __test_showtime(tmp_path, 'summary', 78, 'Overall time: ', use_compdb=True, extra_args=['-j2', '--executor=process'])
 
 
-def __test_showtime_file_total(tmp_path, use_compdb):
-    __test_showtime(tmp_path, 'file-total', 0, 'Check time: ', use_compdb)
+def __test_showtime_file_total(tmp_path, use_compdb=False):
+    __test_showtime(tmp_path, 'file-total', 0, 'Check time: ', use_compdb=use_compdb)
 
 
 def test_showtime_file_total(tmp_path):
-    __test_showtime_file_total(tmp_path, False)
+    __test_showtime_file_total(tmp_path)
 
 
 def test_showtime_file_total_compdb(tmp_path):
@@ -3423,13 +3479,6 @@ void f() {}
     assert stdout.splitlines() == []
     assert stderr.splitlines() == []  # no error since the unused templates are not being checked
 
-try:
-    # TODO: handle exitcode?
-    subprocess.call(['clang-tidy', '--version'])
-    has_clang_tidy = True
-except OSError:
-    has_clang_tidy = False
-
 def __test_clang_tidy(tmpdir, use_compdb):
     test_file = os.path.join(tmpdir, 'test.cpp')
     with open(test_file, 'wt') as f:
@@ -3460,18 +3509,18 @@ def __test_clang_tidy(tmpdir, use_compdb):
     ]
 
 
-@pytest.mark.skipif(not has_clang_tidy, reason='clang-tidy is not available')
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
 @pytest.mark.xfail(strict=True)  # TODO: clang-tidy is only invoked with FileSettings - see #12053
 def test_clang_tidy(tmpdir):  # #12053
     __test_clang_tidy(tmpdir, False)
 
 
-@pytest.mark.skipif(not has_clang_tidy, reason='clang-tidy is not available')
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
 def test_clang_tidy_project(tmpdir):
     __test_clang_tidy(tmpdir, True)
 
 
-@pytest.mark.skipif(not has_clang_tidy, reason='clang-tidy is not available')
+@pytest.mark.skipif(not __has_clang_tidy, reason='clang-tidy is not available')
 def test_clang_tidy_error_exit(tmp_path):  # #13828 / #13829
     test_file = tmp_path / 'test.cpp'
     with open(test_file, 'wt') as f:
