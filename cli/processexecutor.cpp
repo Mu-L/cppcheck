@@ -342,6 +342,12 @@ unsigned int ProcessExecutor::check()
         return v + p.size();
     });
 
+    // pass unmodified suppressions to forked process so we only transfer back the actual changes done by the fork
+    // and do not see the changes which have already been transferred back
+    Suppressions supprs;
+    supprs.nomsg.addSuppressions(mSuppressions.nomsg.getSuppressions());
+    supprs.nofail.addSuppressions(mSuppressions.nofail.getSuppressions());
+
     std::list<int> rpipes;
     std::map<pid_t, std::string> childFile;
     std::map<int, std::string> pipeFile;
@@ -380,13 +386,13 @@ unsigned int ProcessExecutor::check()
 #endif
                 close(pipes[0]);
 
-                // reset so we do not have the data which has already been transferred back
+                // create a separate result object so we do not get the results which have already been transferred back
+                std::unique_ptr<TimerResults> timerResults;
                 if (mTimerResults)
-                    mTimerResults->reset();
-                // TODO: how to "reset" mSuppressions?
+                    timerResults.reset(new TimerResults);
 
                 PipeWriter pipewriter(pipes[1], mSettings.debugipc);
-                CppCheck fileChecker(mSettings, mSuppressions, pipewriter, mTimerResults, false, mExecuteCommand);
+                CppCheck fileChecker(mSettings, supprs, pipewriter, timerResults.get(), false, mExecuteCommand);
                 unsigned int resultOfCheck = 0;
 
                 if (iFileSettings != mFileSettings.end()) {
@@ -396,9 +402,9 @@ unsigned int ProcessExecutor::check()
                     resultOfCheck = fileChecker.check(*iFile);
                 }
 
-                pipewriter.writeSuppr(mSuppressions.nomsg);
+                pipewriter.writeSuppr(supprs.nomsg);
 
-                pipewriter.writeTimer(mTimerResults);
+                pipewriter.writeTimer(timerResults.get());
 
                 pipewriter.writeEnd(std::to_string(resultOfCheck));
                 std::exit(EXIT_SUCCESS);
