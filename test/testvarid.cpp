@@ -1328,7 +1328,7 @@ private:
         ASSERT_EQUALS(expected2, tokenize(code2));
 
         const char code3[] = "extern void (*arr[10])(uint32_t some);\n";
-        const char expected3[] = "1: extern void ( * arr@1 [ 10 ] ) ( uint32_t some@2 ) ;\n";
+        const char expected3[] = "1: extern void ( * arr@1 [ 10 ] ) ( uint32_t ) ;\n";
         ASSERT_EQUALS(expected3, tokenize(code3));
 
         const char code4[] = "_Static_assert(sizeof((struct S){0}.i) == 4);\n"; // #12729
@@ -3545,9 +3545,15 @@ private:
                              "}\n";
         ASSERT_EQUALS("1: void f ( ) {\n"
                       "2: int * p@1 ;\n"
-                      "3: void ( * a@2 [ 1 ] ) ( int * p ) = { 0 } ;\n"
+                      "3: void ( * a@2 [ 1 ] ) ( int * ) = { 0 } ;\n"
                       "4: }\n",
                       tokenize(code4));
+
+        const char code5[] = "int *p;\n"
+                             "void (*a[1])(int* p) = { 0 } ;\n";
+        ASSERT_EQUALS("1: int * p@1 ;\n"
+                      "2: void ( * a@2 [ 1 ] ) ( int * ) = { 0 } ;\n"
+                      , tokenize(code5));
     }
 
     void varid_alignas() {
