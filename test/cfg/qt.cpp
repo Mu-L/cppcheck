@@ -728,6 +728,7 @@ namespace {
     private:
         int m_value;
     };
+    // cppcheck-suppress shadowFunction
     void Counter1::setValue(int value) {
         if (value != m_value) {
             m_value = value;
@@ -751,6 +752,7 @@ namespace {
     private:
         int m_value;
     };
+    // cppcheck-suppress shadowFunction
     void Counter2::setValue(int value) {
         if (value != m_value) {
             m_value = value;
