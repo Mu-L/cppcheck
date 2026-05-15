@@ -4844,6 +4844,26 @@ private:
               "    return s->x ? 1 : 0;\n"
               "}\n");
         ASSERT_EQUALS("[test.cpp:2:10]: (style) Parameter 's' can be declared as pointer to const [constParameterPointer]\n", errout_str());
+
+        check("struct S { int a[1][1]; };\n" // #14714
+              "int f(S* s) {\n"
+              "    return s->a[0][0] ? 1 : 0;\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:2:10]: (style) Parameter 's' can be declared as pointer to const [constParameterPointer]\n", errout_str());
+
+        check("int f(int *p, int *q) {\n" // #14748
+              "    return p ? *p : *q;\n"
+              "}\n"
+              "void g(int *p, int *q) {\n"
+              "    int& r = p ? *p : *q;\n"
+              "    r = 0;\n"
+              "}\n"
+              "void h(int *p, int *q) {\n"
+              "    i(p ? *p : *q);\n"
+              "}\n");
+        ASSERT_EQUALS("[test.cpp:1:12]: (style) Parameter 'p' can be declared as pointer to const [constParameterPointer]\n"
+                      "[test.cpp:1:20]: (style) Parameter 'q' can be declared as pointer to const [constParameterPointer]\n",
+                      errout_str());
     }
 
     void constArray() {
